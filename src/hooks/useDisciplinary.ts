@@ -1,92 +1,82 @@
-import { useState, useEffect } from 'react';
-import { DisciplinaryCase } from '../types';
-import { violationTypes } from '../data/zambia';
+import useSWR from 'swr';
+import { getDisciplinaryCases, getDisciplinaryCase } from '@/actions/disciplinary';
 
-const generateMockCases = (): DisciplinaryCase[] => {
-  const cases: DisciplinaryCase[] = [];
-  const severities: ('Low' | 'Medium' | 'High')[] = ['Low', 'Medium', 'High'];
-  const statuses: ('Active' | 'Under Review' | 'Resolved' | 'Appealed')[] = ['Active', 'Under Review', 'Resolved', 'Appealed'];
-  
-  for (let i = 1; i <= 25; i++) {
-    const reportDate = new Date(2024, Math.floor(Math.random() * 6), Math.floor(Math.random() * 28) + 1);
-    
-    cases.push({
-      id: `case-${i}`,
-      caseNumber: `UPND-DC-2024-${String(i).padStart(3, '0')}`,
-      memberName: `UPND Member ${i}`,
-      memberId: `UPND${1000 + i}`,
-      violationType: violationTypes[Math.floor(Math.random() * violationTypes.length)],
-      description: `Detailed description of violation case ${i}. This case involves potential misconduct that requires investigation and resolution according to UPND party procedures.`,
-      severity: severities[Math.floor(Math.random() * severities.length)],
-      status: statuses[Math.floor(Math.random() * statuses.length)],
-      dateReported: reportDate.toISOString().split('T')[0],
-      dateIncident: new Date(reportDate.getTime() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      reportingOfficer: `Officer ${Math.floor(Math.random() * 10) + 1}`,
-      assignedOfficer: Math.random() > 0.3 ? `Investigator ${Math.floor(Math.random() * 5) + 1}` : undefined,
-      actions: [],
-      evidence: [],
-      notes: []
-    });
-  }
-  
-  return cases;
-};
+// Fetcher function for SWR
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-export function useDisciplinary() {
-  const [cases, setCases] = useState<DisciplinaryCase[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      const mockCases = generateMockCases();
-      setCases(mockCases);
-      setLoading(false);
-    }, 800);
-  }, []);
-
-  const addCase = (caseData: Partial<DisciplinaryCase>) => {
-    const newCase: DisciplinaryCase = {
-      id: `case-${Date.now()}`,
-      caseNumber: `UPND-DC-2024-${String(cases.length + 1).padStart(3, '0')}`,
-      memberName: caseData.memberName || '',
-      memberId: caseData.memberId || '',
-      violationType: caseData.violationType || '',
-      description: caseData.description || '',
-      severity: caseData.severity || 'Medium',
-      status: 'Active',
-      dateReported: new Date().toISOString().split('T')[0],
-      dateIncident: caseData.dateIncident,
-      reportingOfficer: caseData.reportingOfficer || '',
-      assignedOfficer: caseData.assignedOfficer,
-      actions: [],
-      evidence: [],
-      notes: []
-    };
-    
-    setCases(prev => [...prev, newCase]);
-    return newCase;
-  };
-
-  const updateCase = (caseId: string, updates: Partial<DisciplinaryCase>) => {
-    setCases(prev =>
-      prev.map(case_ =>
-        case_.id === caseId
-          ? { ...case_, ...updates }
-          : case_
-      )
-    );
-  };
-
-  const getCaseById = (id: string): DisciplinaryCase | undefined => {
-    return cases.find(case_ => case_.id === id);
-  };
+// Hook for fetching disciplinary cases with pagination and filters
+export function useDisciplinaryCases(queryParams: any = {}) {
+  const { data, error, isLoading, mutate } = useSWR(
+    ['/api/disciplinary', queryParams],
+    () => getDisciplinaryCases(queryParams),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+    }
+  );
 
   return {
-    cases,
-    loading,
-    addCase,
-    updateCase,
-    getCaseById
+    cases: data?.data?.cases || [],
+    pagination: data?.data?.pagination || null,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+// Hook for fetching a single disciplinary case
+export function useDisciplinaryCase(id: string) {
+  const { data, error, isLoading, mutate } = useSWR(
+    id ? `/api/disciplinary/${id}` : null,
+    () => getDisciplinaryCase(id),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+    }
+  );
+
+  return {
+    case: data?.data || null,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+// Hook for disciplinary case statistics
+export function useDisciplinaryStats() {
+  const { data, error, isLoading, mutate } = useSWR(
+    '/api/disciplinary/stats',
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+    }
+  );
+
+  return {
+    stats: data || null,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+// Hook for active disciplinary cases
+export function useActiveDisciplinaryCases() {
+  const { data, error, isLoading, mutate } = useSWR(
+    '/api/disciplinary/active',
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+    }
+  );
+
+  return {
+    cases: data?.cases || [],
+    isLoading,
+    error,
+    mutate,
   };
 }

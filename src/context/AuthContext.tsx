@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useSession, signIn, signOut } from 'next-auth/react';
 import { UPNDUser, UserRole, OrganizationalLevel } from '../types';
 
 interface AuthContextType {
@@ -10,6 +11,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   hasRole: (role: UserRole) => boolean;
   hasPermission: (permission: string) => boolean;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -93,44 +95,53 @@ const permissions: Record<UserRole, string[]> = {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { data: session, status } = useSession();
   const [user, setUser] = useState<UPNDUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('upnd_user');
-      if (storedUser) {
-        try {
-          const userData = JSON.parse(storedUser);
-          setUser(userData);
-          setIsAuthenticated(true);
-        } catch (error) {
-          console.error('Failed to parse stored user data:', error);
-          localStorage.removeItem('upnd_user');
-        }
-      }
+    if (status === 'loading') {
+      setIsLoading(true);
+    } else if (status === 'authenticated' && session?.user) {
+      const upndUser: UPNDUser = {
+        id: session.user.id || '',
+        email: session.user.email || '',
+        role: (session.user.role as UserRole) || 'Member',
+        name: session.user.name || '',
+        jurisdiction: session.user.jurisdiction || '',
+        level: (session.user.level as OrganizationalLevel) || 'Section',
+        isActive: true,
+        partyPosition: session.user.partyPosition || '',
+      };
+      setUser(upndUser);
+      setIsAuthenticated(true);
+      setIsLoading(false);
+    } else {
+      setUser(null);
+      setIsAuthenticated(false);
+      setIsLoading(false);
     }
-  }, []);
+  }, [session, status]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    const foundUser = mockUsers[email];
-    if (foundUser && password === 'upnd2024') {
-      setUser(foundUser);
-      setIsAuthenticated(true);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('upnd_user', JSON.stringify(foundUser));
-      }
-      return true;
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+      return result?.ok || false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
     }
-    return false;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await signOut({ redirect: false });
     setUser(null);
     setIsAuthenticated(false);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('upnd_user');
-    }
   };
 
   const hasRole = (role: UserRole): boolean => {
@@ -150,7 +161,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       isAuthenticated,
       hasRole,
-      hasPermission
+      hasPermission,
+      isLoading
     }}>
       {children}
     </AuthContext.Provider>
