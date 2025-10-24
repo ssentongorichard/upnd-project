@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, date, numeric, integer, boolean, timestamp, jsonb, time, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import * as authSchema from './auth-schema';
 
 export const members = pgTable('members', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -133,3 +134,11 @@ export type MembershipCard = typeof membershipCards.$inferSelect;
 export type EventRsvp = typeof eventRsvps.$inferSelect;
 export type Communication = typeof communications.$inferSelect;
 export type CommunicationRecipient = typeof communicationRecipients.$inferSelect;
+
+// Re-export auth schema types
+export const { users, accounts, sessions, verificationTokens } = authSchema;
+export type User = authSchema.User;
+export type NewUser = authSchema.NewUser;
+export type Account = authSchema.Account;
+export type Session = authSchema.Session;
+export type VerificationToken = authSchema.VerificationToken;
