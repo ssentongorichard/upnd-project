@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+// TODO: Replace with real API integration for communications
 import { Mail, MessageSquare, Send, Users, Filter, History, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { NewCommunicationModal } from './NewCommunicationModal';
 import { CommunicationHistory } from './CommunicationHistory';
@@ -32,12 +32,11 @@ export function Communications() {
   const loadCommunications = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('communications')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const res = await fetch('/api/communications');
+      if (!res.ok) throw new Error('Failed to load communications');
+      const data = await res.json();
 
-      if (error) throw error;
+      // assuming data is array
       setCommunications(data || []);
     } catch (error) {
       console.error('Error loading communications:', error);

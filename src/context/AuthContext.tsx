@@ -1,7 +1,9 @@
+
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { UPNDUser, UserRole, OrganizationalLevel } from '../types';
+import React, { createContext, useContext, ReactNode } from 'react';
+import { UPNDUser, UserRole } from '../types';
+import { signIn, signOut, useSession } from 'next-auth/react';
 
 interface AuthContextType {
   user: UPNDUser | null;
@@ -13,49 +15,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const mockUsers: Record<string, UPNDUser> = {
-  'admin@upnd.zm': {
-    id: '1',
-    email: 'admin@upnd.zm',
-    role: 'National Admin',
-    name: 'Hakainde Hichilema',
-    jurisdiction: 'National',
-    level: 'National',
-    isActive: true,
-    partyPosition: 'National President'
-  },
-  'provincial@upnd.zm': {
-    id: '2',
-    email: 'provincial@upnd.zm',
-    role: 'Provincial Admin',
-    name: 'Cornelius Mweetwa',
-    jurisdiction: 'Lusaka',
-    level: 'Provincial',
-    isActive: true,
-    partyPosition: 'Provincial Chairperson'
-  },
-  'district@upnd.zm': {
-    id: '3',
-    email: 'district@upnd.zm',
-    role: 'District Admin',
-    name: 'Mutale Nalumango',
-    jurisdiction: 'Lusaka District',
-    level: 'District',
-    isActive: true,
-    partyPosition: 'District Chairperson'
-  },
-  'branch@upnd.zm': {
-    id: '4',
-    email: 'branch@upnd.zm',
-    role: 'Branch Admin',
-    name: 'Sylvia Masebo',
-    jurisdiction: 'Kabwata Branch',
-    level: 'Branch',
-    isActive: true,
-    partyPosition: 'Branch Chairperson'
-  }
-};
 
 const permissions: Record<UserRole, string[]> = {
   'National Admin': [
@@ -93,45 +52,16 @@ const permissions: Record<UserRole, string[]> = {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UPNDUser | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('upnd_user');
-      if (storedUser) {
-        try {
-          const userData = JSON.parse(storedUser);
-          setUser(userData);
-          setIsAuthenticated(true);
-        } catch (error) {
-          console.error('Failed to parse stored user data:', error);
-          localStorage.removeItem('upnd_user');
-        }
-      }
-    }
-  }, []);
+  const { data: session, status } = useSession();
+  const isAuthenticated = status === 'authenticated';
+  const user = (session?.user as unknown as UPNDUser) || null;
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    const foundUser = mockUsers[email];
-    if (foundUser && password === 'upnd2024') {
-      setUser(foundUser);
-      setIsAuthenticated(true);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('upnd_user', JSON.stringify(foundUser));
-      }
-      return true;
-    }
-    return false;
+    const res = await signIn('credentials', { email, password, redirect: false });
+    return res?.ok === true;
   };
 
-  const logout = () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('upnd_user');
-    }
-  };
+  const logout = () => { void signOut({ redirect: false }); };
 
   const hasRole = (role: UserRole): boolean => {
     return user?.role === role;
