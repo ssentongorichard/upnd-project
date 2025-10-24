@@ -1,6 +1,61 @@
-import { pgTable, uuid, text, date, numeric, integer, boolean, timestamp, jsonb, time, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, date, numeric, integer, boolean, timestamp, jsonb, time, unique, primaryKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { AdapterAccount } from '@auth/core/adapters';
 
+// NextAuth Tables
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name'),
+  email: text('email').notNull().unique(),
+  emailVerified: timestamp('email_verified', { withTimezone: true }),
+  image: text('image'),
+  password: text('password'),
+  role: text('role').default('Member'),
+  jurisdiction: text('jurisdiction'),
+  level: text('level'),
+  isActive: boolean('is_active').default(true),
+  partyPosition: text('party_position'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+export const accounts = pgTable('accounts', {
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type').$type<AdapterAccount['type']>().notNull(),
+  provider: text('provider').notNull(),
+  providerAccountId: text('provider_account_id').notNull(),
+  refresh_token: text('refresh_token'),
+  access_token: text('access_token'),
+  expires_at: integer('expires_at'),
+  token_type: text('token_type'),
+  scope: text('scope'),
+  id_token: text('id_token'),
+  session_state: text('session_state'),
+}, (account) => ({
+  compoundKey: primaryKey({
+    columns: [account.provider, account.providerAccountId],
+  }),
+}));
+
+export const sessions = pgTable('sessions', {
+  sessionToken: text('session_token').notNull().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expires: timestamp('expires', { withTimezone: true }).notNull(),
+});
+
+export const verificationTokens = pgTable('verification_tokens', {
+  identifier: text('identifier').notNull(),
+  token: text('token').notNull(),
+  expires: timestamp('expires', { withTimezone: true }).notNull(),
+}, (vt) => ({
+  compoundKey: primaryKey({ columns: [vt.identifier, vt.token] }),
+}));
+
+// Application Tables
 export const members = pgTable('members', {
   id: uuid('id').primaryKey().defaultRandom(),
   membershipId: text('membership_id').unique().notNull(),
@@ -125,11 +180,24 @@ export const communicationRecipients = pgTable('communication_recipients', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+// Type exports
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type VerificationToken = typeof verificationTokens.$inferSelect;
+
 export type Member = typeof members.$inferSelect;
 export type NewMember = typeof members.$inferInsert;
 export type DisciplinaryCase = typeof disciplinaryCases.$inferSelect;
+export type NewDisciplinaryCase = typeof disciplinaryCases.$inferInsert;
 export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
 export type MembershipCard = typeof membershipCards.$inferSelect;
+export type NewMembershipCard = typeof membershipCards.$inferInsert;
 export type EventRsvp = typeof eventRsvps.$inferSelect;
+export type NewEventRsvp = typeof eventRsvps.$inferInsert;
 export type Communication = typeof communications.$inferSelect;
+export type NewCommunication = typeof communications.$inferInsert;
 export type CommunicationRecipient = typeof communicationRecipients.$inferSelect;
+export type NewCommunicationRecipient = typeof communicationRecipients.$inferInsert;

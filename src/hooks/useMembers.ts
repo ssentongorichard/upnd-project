@@ -1,16 +1,47 @@
-import { useState, useEffect } from 'react';
-import { UPNDMember, Statistics, MembershipStatus, Jurisdiction } from '../types';
-import { supabase } from '../lib/supabase';
+import { useState, useEffect, useCallback } from 'react';
+import useSWR, { mutate } from 'swr';
+import { UPNDMember, Statistics, MembershipStatus } from '../types';
+import {
+  getMembers,
+  getMemberById,
+  createMember,
+  updateMember as updateMemberAction,
+  updateMemberStatus as updateMemberStatusAction,
+  getMemberStatistics,
+  bulkApprovemembers,
+} from '../app/actions/members';
+import type { MemberRegistrationInput, MemberUpdateInput } from '../lib/validations';
 
-export function useMembers() {
-  const [members, setMembers] = useState<UPNDMember[]>([]);
-  const [statistics, setStatistics] = useState<Statistics | null>(null);
-  const [loading, setLoading] = useState(true);
+export function useMembers(filters?: {
+  status?: string;
+  province?: string;
+  district?: string;
+  searchTerm?: string;
+}) {
   const [dateRange, setDateRange] = useState<string>('all');
+  const [localStatistics, setLocalStatistics] = useState<Statistics | null>(null);
 
-  useEffect(() => {
-    fetchMembers();
-  }, []);
+  // Fetch members with SWR
+  const { data: membersData, error, isLoading } = useSWR(
+    ['members', filters],
+    () => getMembers(filters),
+    {
+      refreshInterval: 30000, // Refresh every 30 seconds
+      revalidateOnFocus: true,
+    }
+  );
+
+  // Fetch statistics with SWR
+  const { data: statsData } = useSWR(
+    ['member-statistics', dateRange],
+    () => getMemberStatistics(dateRange),
+    {
+      refreshInterval: 60000, // Refresh every minute
+    }
+  );
+
+  const members = membersData?.success ? membersData.data : [];
+  const loading = isLoading;
 
   useEffect(() => {
     if (members.length > 0) {
@@ -62,7 +93,7 @@ export function useMembers() {
     }
   };
 
-  const filterMembersByDateRange = (memberList: UPNDMember[], range: string): UPNDMember[] => {
+  const filterMembersByDateRange = useCallback((memberList: any[], range: string): any[] => {
     if (range === 'allTime' || range === 'all') return memberList;
 
     const now = new Date();
@@ -96,7 +127,7 @@ export function useMembers() {
       const registrationDate = new Date(member.registrationDate);
       return registrationDate >= startDate && registrationDate <= now;
     });
-  };
+  }, []);
 
   const calculateStatistics = (memberList: UPNDMember[]) => {
     const totalMembers = memberList.length;
@@ -152,7 +183,7 @@ export function useMembers() {
       statusDistribution[member.status]++;
     });
 
-    setStatistics({
+    setLocalStatistics({
       totalMembers,
       pendingApplications,
       approvedMembers,
@@ -162,63 +193,33 @@ export function useMembers() {
       monthlyTrends,
       statusDistribution
     });
-  };
+  }, []);
 
-  const addMember = async (memberData: Partial<UPNDMember>) => {
+  const addMember = async (memberData: any) => {
     try {
-      const membershipId = `UPND${Date.now()}`;
+      const result = await createMember({
+        fullName: memberData.fullName,
+        nrcNumber: memberData.nrcNumber,
+        dateOfBirth: memberData.dateOfBirth,
+        phone: memberData.phone,
+        email: memberData.email,
+        residentialAddress: memberData.residentialAddress,
+        province: memberData.jurisdiction?.province,
+        district: memberData.jurisdiction?.district,
+        constituency: memberData.jurisdiction?.constituency,
+        ward: memberData.jurisdiction?.ward,
+        branch: memberData.jurisdiction?.branch,
+        section: memberData.jurisdiction?.section,
+        partyCommitment: 'Unity, Work, Progress',
+      } as MemberRegistrationInput);
 
-      const { data, error } = await supabase
-        .from('members')
-        .insert({
-          membership_id: membershipId,
-          full_name: memberData.fullName || '',
-          nrc_number: memberData.nrcNumber || '',
-          date_of_birth: memberData.dateOfBirth || '',
-          residential_address: memberData.residentialAddress || '',
-          phone: memberData.phone || '',
-          email: memberData.email || null,
-          province: memberData.jurisdiction?.province || '',
-          district: memberData.jurisdiction?.district || '',
-          constituency: memberData.jurisdiction?.constituency || '',
-          ward: memberData.jurisdiction?.ward || '',
-          branch: memberData.jurisdiction?.branch || '',
-          section: memberData.jurisdiction?.section || '',
-          status: 'Pending Section Review',
-          party_commitment: 'Unity, Work, Progress'
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      const newMember: UPNDMember = {
-        id: data.id,
-        membershipId: data.membership_id,
-        fullName: data.full_name,
-        nrcNumber: data.nrc_number,
-        dateOfBirth: data.date_of_birth,
-        residentialAddress: data.residential_address,
-        phone: data.phone,
-        email: data.email,
-        endorsements: memberData.endorsements || [],
-        status: data.status as MembershipStatus,
-        registrationDate: data.registration_date,
-        jurisdiction: {
-          province: data.province,
-          district: data.district,
-          constituency: data.constituency,
-          ward: data.ward,
-          branch: data.branch,
-          section: data.section
-        },
-        disciplinaryRecords: [],
-        appeals: [],
-        partyCommitment: data.party_commitment
-      };
-
-      setMembers(prev => [newMember, ...prev]);
-      return newMember;
+      if (result.success) {
+        // Revalidate members data
+        mutate(['members', filters]);
+        return result.data;
+      } else {
+        throw new Error(result.error);
+      }
     } catch (error) {
       console.error('Error adding member:', error);
       throw error;
@@ -227,89 +228,56 @@ export function useMembers() {
 
   const updateMemberStatus = async (memberId: string, status: MembershipStatus) => {
     try {
-      const { error } = await supabase
-        .from('members')
-        .update({ status })
-        .eq('id', memberId);
-
-      if (error) throw error;
-
-      setMembers(prev =>
-        prev.map(member =>
-          member.id === memberId
-            ? { ...member, status }
-            : member
-        )
-      );
+      const result = await updateMemberStatusAction({ id: memberId, status });
+      
+      if (result.success) {
+        // Revalidate members data
+        mutate(['members', filters]);
+      } else {
+        throw new Error(result.error);
+      }
     } catch (error) {
       console.error('Error updating member status:', error);
       throw error;
     }
   };
 
-  const updateMember = async (memberId: string, updatedData: Partial<UPNDMember>) => {
+  const updateMember = async (memberId: string, updatedData: any) => {
     try {
-      const updatePayload: any = {};
-
-      if (updatedData.fullName !== undefined) updatePayload.full_name = updatedData.fullName;
-      if (updatedData.nrcNumber !== undefined) updatePayload.nrc_number = updatedData.nrcNumber;
-      if (updatedData.dateOfBirth !== undefined) updatePayload.date_of_birth = updatedData.dateOfBirth;
-      if (updatedData.phone !== undefined) updatePayload.phone = updatedData.phone;
-      if (updatedData.email !== undefined) updatePayload.email = updatedData.email || null;
-      if (updatedData.residentialAddress !== undefined) updatePayload.residential_address = updatedData.residentialAddress;
-      if (updatedData.partyCommitment !== undefined) updatePayload.party_commitment = updatedData.partyCommitment;
-
-      if (updatedData.jurisdiction) {
-        if (updatedData.jurisdiction.province !== undefined) updatePayload.province = updatedData.jurisdiction.province;
-        if (updatedData.jurisdiction.district !== undefined) updatePayload.district = updatedData.jurisdiction.district;
-        if (updatedData.jurisdiction.constituency !== undefined) updatePayload.constituency = updatedData.jurisdiction.constituency;
-        if (updatedData.jurisdiction.ward !== undefined) updatePayload.ward = updatedData.jurisdiction.ward;
-        if (updatedData.jurisdiction.branch !== undefined) updatePayload.branch = updatedData.jurisdiction.branch;
-        if (updatedData.jurisdiction.section !== undefined) updatePayload.section = updatedData.jurisdiction.section;
+      const result = await updateMemberAction(memberId, updatedData as MemberUpdateInput);
+      
+      if (result.success) {
+        // Revalidate members data
+        mutate(['members', filters]);
+      } else {
+        throw new Error(result.error);
       }
-
-      console.log('Updating member with payload:', updatePayload);
-
-      const { data, error } = await supabase
-        .from('members')
-        .update(updatePayload)
-        .eq('id', memberId)
-        .select();
-
-      if (error) {
-        console.error('Supabase update error:', error);
-        throw error;
-      }
-
-      console.log('Update successful:', data);
-
-      await fetchMembers();
     } catch (error) {
       console.error('Error updating member:', error);
       throw error;
     }
   };
 
-  const getMemberById = (id: string): UPNDMember | undefined => {
-    return members.find(member => member.id === id);
+  const getMemberById = async (id: string) => {
+    try {
+      const result = await getMemberById(id);
+      return result.success ? result.data : undefined;
+    } catch (error) {
+      console.error('Error fetching member:', error);
+      return undefined;
+    }
   };
 
   const bulkApprove = async (memberIds: string[]) => {
     try {
-      const { error } = await supabase
-        .from('members')
-        .update({ status: 'Approved' })
-        .in('id', memberIds);
-
-      if (error) throw error;
-
-      setMembers(prev =>
-        prev.map(member =>
-          memberIds.includes(member.id)
-            ? { ...member, status: 'Approved' as MembershipStatus }
-            : member
-        )
-      );
+      const result = await bulkApprovemembers(memberIds);
+      
+      if (result.success) {
+        // Revalidate members data
+        mutate(['members', filters]);
+      } else {
+        throw new Error(result.error);
+      }
     } catch (error) {
       console.error('Error bulk approving members:', error);
       throw error;
@@ -318,14 +286,15 @@ export function useMembers() {
 
   return {
     members,
-    statistics,
+    statistics: statsData?.success ? statsData.data : localStatistics,
     loading,
+    error,
     dateRange,
     setDateRange,
     addMember,
     updateMemberStatus,
     updateMember,
     getMemberById,
-    bulkApprove
+    bulkApprove,
   };
 }

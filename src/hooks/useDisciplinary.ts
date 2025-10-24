@@ -1,92 +1,95 @@
-import { useState, useEffect } from 'react';
-import { DisciplinaryCase } from '../types';
-import { violationTypes } from '../data/zambia';
+import useSWR, { mutate } from 'swr';
+import {
+  getDisciplinaryCases,
+  createDisciplinaryCase,
+  updateDisciplinaryCase as updateCaseAction,
+  deleteDisciplinaryCase as deleteCaseAction,
+} from '../app/actions/disciplinary';
+import type { DisciplinaryCaseInput, DisciplinaryCaseUpdateInput } from '../lib/validations';
 
-const generateMockCases = (): DisciplinaryCase[] => {
-  const cases: DisciplinaryCase[] = [];
-  const severities: ('Low' | 'Medium' | 'High')[] = ['Low', 'Medium', 'High'];
-  const statuses: ('Active' | 'Under Review' | 'Resolved' | 'Appealed')[] = ['Active', 'Under Review', 'Resolved', 'Appealed'];
-  
-  for (let i = 1; i <= 25; i++) {
-    const reportDate = new Date(2024, Math.floor(Math.random() * 6), Math.floor(Math.random() * 28) + 1);
-    
-    cases.push({
-      id: `case-${i}`,
-      caseNumber: `UPND-DC-2024-${String(i).padStart(3, '0')}`,
-      memberName: `UPND Member ${i}`,
-      memberId: `UPND${1000 + i}`,
-      violationType: violationTypes[Math.floor(Math.random() * violationTypes.length)],
-      description: `Detailed description of violation case ${i}. This case involves potential misconduct that requires investigation and resolution according to UPND party procedures.`,
-      severity: severities[Math.floor(Math.random() * severities.length)],
-      status: statuses[Math.floor(Math.random() * statuses.length)],
-      dateReported: reportDate.toISOString().split('T')[0],
-      dateIncident: new Date(reportDate.getTime() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      reportingOfficer: `Officer ${Math.floor(Math.random() * 10) + 1}`,
-      assignedOfficer: Math.random() > 0.3 ? `Investigator ${Math.floor(Math.random() * 5) + 1}` : undefined,
-      actions: [],
-      evidence: [],
-      notes: []
-    });
-  }
-  
-  return cases;
-};
+export function useDisciplinary(filters?: {
+  status?: string;
+  severity?: string;
+  memberId?: string;
+}) {
+  // Fetch disciplinary cases with SWR
+  const { data: casesData, error, isLoading } = useSWR(
+    ['disciplinary-cases', filters],
+    () => getDisciplinaryCases(filters),
+    {
+      refreshInterval: 30000, // Refresh every 30 seconds
+      revalidateOnFocus: true,
+    }
+  );
 
-export function useDisciplinary() {
-  const [cases, setCases] = useState<DisciplinaryCase[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cases = casesData?.success ? casesData.data : [];
+  const loading = isLoading;
 
-  useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      const mockCases = generateMockCases();
-      setCases(mockCases);
-      setLoading(false);
-    }, 800);
-  }, []);
+  const addCase = async (caseData: any) => {
+    try {
+      const result = await createDisciplinaryCase(caseData as DisciplinaryCaseInput);
 
-  const addCase = (caseData: Partial<DisciplinaryCase>) => {
-    const newCase: DisciplinaryCase = {
-      id: `case-${Date.now()}`,
-      caseNumber: `UPND-DC-2024-${String(cases.length + 1).padStart(3, '0')}`,
-      memberName: caseData.memberName || '',
-      memberId: caseData.memberId || '',
-      violationType: caseData.violationType || '',
-      description: caseData.description || '',
-      severity: caseData.severity || 'Medium',
-      status: 'Active',
-      dateReported: new Date().toISOString().split('T')[0],
-      dateIncident: caseData.dateIncident,
-      reportingOfficer: caseData.reportingOfficer || '',
-      assignedOfficer: caseData.assignedOfficer,
-      actions: [],
-      evidence: [],
-      notes: []
-    };
-    
-    setCases(prev => [...prev, newCase]);
-    return newCase;
+      if (result.success) {
+        // Revalidate cases data
+        mutate(['disciplinary-cases', filters]);
+        return result.data;
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      console.error('Error adding disciplinary case:', error);
+      throw error;
+    }
   };
 
-  const updateCase = (caseId: string, updates: Partial<DisciplinaryCase>) => {
-    setCases(prev =>
-      prev.map(case_ =>
-        case_.id === caseId
-          ? { ...case_, ...updates }
-          : case_
-      )
-    );
+  const updateCase = async (caseId: string, updatedData: any) => {
+    try {
+      const result = await updateCaseAction(caseId, updatedData as DisciplinaryCaseUpdateInput);
+
+      if (result.success) {
+        // Revalidate cases data
+        mutate(['disciplinary-cases', filters]);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      console.error('Error updating disciplinary case:', error);
+      throw error;
+    }
   };
 
-  const getCaseById = (id: string): DisciplinaryCase | undefined => {
-    return cases.find(case_ => case_.id === id);
+  const deleteCase = async (caseId: string) => {
+    try {
+      const result = await deleteCaseAction(caseId);
+
+      if (result.success) {
+        // Revalidate cases data
+        mutate(['disciplinary-cases', filters]);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      console.error('Error deleting disciplinary case:', error);
+      throw error;
+    }
+  };
+
+  const refreshCases = () => {
+    mutate(['disciplinary-cases', filters]);
+  };
+
+  const getCaseById = (id: string) => {
+    return cases.find((case_: any) => case_.id === id);
   };
 
   return {
     cases,
     loading,
+    error,
     addCase,
     updateCase,
-    getCaseById
+    deleteCase,
+    refreshCases,
+    getCaseById,
   };
 }
