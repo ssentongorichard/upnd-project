@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+// Supabase replaced with Next.js API routes
 import { Calendar, AlertTriangle, CheckCircle, Clock, RefreshCw, Send } from 'lucide-react';
 
 interface CardExpiry {
@@ -30,33 +30,10 @@ export function CardExpiryTracking() {
   const loadCards = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('membership_cards')
-        .select(`
-          id,
-          member_id,
-          card_type,
-          issue_date,
-          expiry_date,
-          status,
-          renewal_reminder_sent,
-          members!inner(
-            full_name,
-            membership_id,
-            email,
-            phone
-          )
-        `)
-        .order('expiry_date', { ascending: true });
-
-      if (error) throw error;
-
-      const formattedCards = (data || []).map(card => ({
-        ...card,
-        member: Array.isArray(card.members) ? card.members[0] : card.members
-      }));
-
-      setCards(formattedCards);
+      const res = await fetch('/api/membership-cards');
+      if (!res.ok) throw new Error('Failed to load cards');
+      const data = await res.json();
+      setCards(data || []);
     } catch (error) {
       console.error('Error loading cards:', error);
     } finally {
@@ -106,15 +83,15 @@ export function CardExpiryTracking() {
 
   const handleSendReminder = async (cardId: string) => {
     try {
-      const { error } = await supabase
-        .from('membership_cards')
-        .update({
-          renewal_reminder_sent: true,
-          renewal_reminder_sent_at: new Date().toISOString()
+      const res = await fetch(`/api/membership-cards/${cardId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          renewalReminderSent: true,
+          renewalReminderSentAt: new Date().toISOString()
         })
-        .eq('id', cardId);
-
-      if (error) throw error;
+      });
+      if (!res.ok) throw new Error('Failed to send reminder');
 
       alert('Renewal reminder sent successfully');
       loadCards();
@@ -129,17 +106,17 @@ export function CardExpiryTracking() {
       const newExpiryDate = new Date();
       newExpiryDate.setFullYear(newExpiryDate.getFullYear() + 1);
 
-      const { error } = await supabase
-        .from('membership_cards')
-        .update({
-          expiry_date: newExpiryDate.toISOString().split('T')[0],
+      const res = await fetch(`/api/membership-cards/${cardId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expiryDate: newExpiryDate.toISOString().split('T')[0],
           status: 'Active',
-          renewal_reminder_sent: false,
-          last_renewed_at: new Date().toISOString()
+          renewalReminderSent: false,
+          lastRenewedAt: new Date().toISOString()
         })
-        .eq('id', cardId);
-
-      if (error) throw error;
+      });
+      if (!res.ok) throw new Error('Failed to renew card');
 
       alert('Card renewed successfully');
       loadCards();

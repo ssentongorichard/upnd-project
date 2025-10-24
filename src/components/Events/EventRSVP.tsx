@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+// Supabase replaced with Next.js API routes
 import { Users, CheckCircle, XCircle, Clock, UserCheck, Search } from 'lucide-react';
 
 interface EventRSVP {
@@ -37,35 +37,10 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
   const loadRSVPs = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('event_rsvps')
-        .select(`
-          id,
-          event_id,
-          member_id,
-          response,
-          responded_at,
-          checked_in,
-          checked_in_at,
-          notes,
-          members!inner(
-            full_name,
-            membership_id,
-            phone,
-            email
-          )
-        `)
-        .eq('event_id', eventId)
-        .order('responded_at', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedRSVPs = (data || []).map(rsvp => ({
-        ...rsvp,
-        member: Array.isArray(rsvp.members) ? rsvp.members[0] : rsvp.members
-      }));
-
-      setRsvps(formattedRSVPs);
+      const res = await fetch(`/api/events/${eventId}/rsvps`);
+      if (!res.ok) throw new Error('Failed to fetch RSVPs');
+      const data = await res.json();
+      setRsvps(data || []);
     } catch (error) {
       console.error('Error loading RSVPs:', error);
     } finally {
@@ -75,15 +50,12 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
 
   const handleCheckIn = async (rsvpId: string) => {
     try {
-      const { error } = await supabase
-        .from('event_rsvps')
-        .update({
-          checked_in: true,
-          checked_in_at: new Date().toISOString()
-        })
-        .eq('id', rsvpId);
-
-      if (error) throw error;
+      const res = await fetch(`/api/event-rsvps/${rsvpId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checked_in: true, checked_in_at: new Date().toISOString() })
+      });
+      if (!res.ok) throw new Error('Failed to check in');
       loadRSVPs();
     } catch (error) {
       console.error('Error checking in:', error);
@@ -93,15 +65,12 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
 
   const handleUndoCheckIn = async (rsvpId: string) => {
     try {
-      const { error } = await supabase
-        .from('event_rsvps')
-        .update({
-          checked_in: false,
-          checked_in_at: null
-        })
-        .eq('id', rsvpId);
-
-      if (error) throw error;
+      const res = await fetch(`/api/event-rsvps/${rsvpId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checked_in: false, checked_in_at: null })
+      });
+      if (!res.ok) throw new Error('Failed to undo check-in');
       loadRSVPs();
     } catch (error) {
       console.error('Error undoing check-in:', error);
