@@ -1,8 +1,10 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, CircleMarker, useMap } from 'react-leaflet';
 import { LatLngBounds } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { supabase } from '../../lib/supabase';
+import { getMembers } from '@/app/actions/members';
 import { MemberMapData, MembershipStatus } from '../../types';
 import { MapPin, Users, Filter, Download, ZoomIn, ZoomOut, RefreshCw } from 'lucide-react';
 import { zambia } from '../../data/zambia';
@@ -53,28 +55,26 @@ export function GeoMapping() {
   const loadMembers = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('members')
-        .select('id, full_name, membership_id, latitude, longitude, province, district, constituency, status, membership_level')
-        .not('latitude', 'is', null)
-        .not('longitude', 'is', null);
+      const result = await getMembers();
 
-      if (error) throw error;
+      if (result.success && result.data) {
+        const mappedMembers: MemberMapData[] = result.data
+          .filter((m: any) => m.latitude && m.longitude)
+          .map((m: any) => ({
+            id: m.id,
+            fullName: m.fullName,
+            membershipId: m.membershipId,
+            latitude: parseFloat(m.latitude),
+            longitude: parseFloat(m.longitude),
+            province: m.province,
+            district: m.district,
+            constituency: m.constituency,
+            status: m.status as MembershipStatus,
+            membershipLevel: m.membershipLevel
+          }));
 
-      const mappedMembers: MemberMapData[] = (data || []).map((m: any) => ({
-        id: m.id,
-        fullName: m.full_name,
-        membershipId: m.membership_id,
-        latitude: m.latitude,
-        longitude: m.longitude,
-        province: m.province,
-        district: m.district,
-        constituency: m.constituency,
-        status: m.status,
-        membershipLevel: m.membership_level
-      }));
-
-      setMembers(mappedMembers);
+        setMembers(mappedMembers);
+      }
     } catch (error) {
       console.error('Error loading members:', error);
     } finally {

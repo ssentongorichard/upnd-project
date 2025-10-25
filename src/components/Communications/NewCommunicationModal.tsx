@@ -1,7 +1,10 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
 import { X, Send, Users, Filter } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useSession } from 'next-auth/react';
+import { createCommunication } from '@/app/actions/communications';
+import { getMembers } from '@/app/actions/members';
 
 interface NewCommunicationModalProps {
   onClose: () => void;
@@ -9,13 +12,13 @@ interface NewCommunicationModalProps {
 }
 
 export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationModalProps) {
-  const { user } = useAuth();
+  const { data: session } = useSession();
   const [type, setType] = useState<string>('SMS');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [filterProvince, setFilterProvince] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterMembershipLevel, setFilterMembershipLevel] = useState('all');
+  const [filterProvince, setFilterProvince] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterMembershipLevel, setFilterMembershipLevel] = useState('');
   const [recipientCount, setRecipientCount] = useState(0);
   const [sending, setSending] = useState(false);
 
@@ -27,21 +30,22 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
 
   const calculateRecipients = async () => {
     try {
-      let query = supabase.from('members').select('id', { count: 'exact', head: true });
+      const filters: any = {};
+      if (filterProvince) filters.province = filterProvince;
+      if (filterStatus) filters.status = filterStatus;
 
-      if (filterProvince !== 'all') {
-        query = query.eq('province', filterProvince);
+      const result = await getMembers(filters);
+      
+      if (result.success && result.data) {
+        let count = result.data.length;
+        
+        // Further filter by membership level if set
+        if (filterMembershipLevel) {
+          count = result.data.filter((m: any) => m.membershipLevel === filterMembershipLevel).length;
+        }
+        
+        setRecipientCount(count);
       }
-      if (filterStatus !== 'all') {
-        query = query.eq('status', filterStatus);
-      }
-      if (filterMembershipLevel !== 'all') {
-        query = query.eq('membership_level', filterMembershipLevel);
-      }
-
-      const { count, error } = await query;
-      if (error) throw error;
-      setRecipientCount(count || 0);
     } catch (error) {
       console.error('Error calculating recipients:', error);
     }
@@ -61,55 +65,25 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
     try {
       setSending(true);
 
-      const recipientFilter = {
-        province: filterProvince !== 'all' ? filterProvince : null,
-        status: filterStatus !== 'all' ? filterStatus : null,
-        membershipLevel: filterMembershipLevel !== 'all' ? filterMembershipLevel : null
-      };
+      const recipientFilter: any = {};
+      if (filterProvince) recipientFilter.province = filterProvince;
+      if (filterStatus) recipientFilter.status = filterStatus;
+      if (filterMembershipLevel) recipientFilter.membershipLevel = filterMembershipLevel;
 
-      const { data: commData, error: commError } = await supabase
-        .from('communications')
-        .insert({
-          type,
-          subject: type === 'Email' || type === 'Both' ? subject : null,
-          message,
-          recipient_filter: recipientFilter,
-          recipients_count: recipientCount,
-          sent_count: recipientCount,
-          failed_count: 0,
-          status: 'Sent',
-          sent_by: user?.name || 'Admin',
-          sent_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (commError) throw commError;
-
-      let query = supabase.from('members').select('id');
-      if (filterProvince !== 'all') query = query.eq('province', filterProvince);
-      if (filterStatus !== 'all') query = query.eq('status', filterStatus);
-      if (filterMembershipLevel !== 'all') query = query.eq('membership_level', filterMembershipLevel);
-
-      const { data: members, error: membersError } = await query;
-      if (membersError) throw membersError;
-
-      const recipients = (members || []).map(member => ({
-        communication_id: commData.id,
-        member_id: member.id,
+      const result = await createCommunication({
+        type: type as any,
+        subject: type === 'Email' ? subject : undefined,
+        message,
+        recipientFilter: Object.keys(recipientFilter).length > 0 ? recipientFilter : undefined,
+        sentBy: session?.user?.name || 'Admin',
         status: 'Sent',
-        sent_at: new Date().toISOString()
-      }));
+      });
 
-      if (recipients.length > 0) {
-        const { error: recipientsError } = await supabase
-          .from('communication_recipients')
-          .insert(recipients);
-
-        if (recipientsError) throw recipientsError;
+      if (result.success) {
+        onSuccess();
+      } else {
+        alert('Failed to send communication: ' + result.error);
       }
-
-      onSuccess();
     } catch (error) {
       console.error('Error sending communication:', error);
       alert('Failed to send communication');
@@ -161,19 +135,19 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
                 Email Only
               </button>
               <button
-                onClick={() => setType('Both')}
+                onClick={() => setType('Push Notification')}
                 className={`px-4 py-3 rounded-lg border-2 font-medium transition-all ${
-                  type === 'Both'
+                  type === 'Push Notification'
                     ? 'border-red-600 bg-red-50 text-red-700'
                     : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
                 }`}
               >
-                SMS & Email
+                Push Notification
               </button>
             </div>
           </div>
 
-          {(type === 'Email' || type === 'Both') && (
+          {type === 'Email' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Subject
@@ -201,7 +175,7 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
             />
             <div className="flex items-center justify-between mt-2 text-sm text-gray-600">
               <span>{characterCount} characters</span>
-              {type !== 'Email' && (
+              {type === 'SMS' && (
                 <span>{smsCount} SMS message{smsCount !== 1 ? 's' : ''}</span>
               )}
             </div>
@@ -223,7 +197,7 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
                   onChange={(e) => setFilterProvince(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
-                  <option value="all">All Provinces</option>
+                  <option value="">All Provinces</option>
                   {provinces.map(province => (
                     <option key={province} value={province}>{province}</option>
                   ))}
@@ -239,7 +213,7 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
                   onChange={(e) => setFilterStatus(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
-                  <option value="all">All Statuses</option>
+                  <option value="">All Statuses</option>
                   <option value="Approved">Approved</option>
                   <option value="Pending Section Review">Pending Section Review</option>
                   <option value="Pending Branch Review">Pending Branch Review</option>
@@ -258,7 +232,7 @@ export function NewCommunicationModal({ onClose, onSuccess }: NewCommunicationMo
                   onChange={(e) => setFilterMembershipLevel(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
-                  <option value="all">All Levels</option>
+                  <option value="">All Levels</option>
                   <option value="General">General</option>
                   <option value="Youth Wing">Youth Wing</option>
                   <option value="Women's Wing">Women's Wing</option>

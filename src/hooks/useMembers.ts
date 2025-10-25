@@ -50,49 +50,6 @@ export function useMembers(filters?: {
     }
   }, [dateRange, members]);
 
-  const fetchMembers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('members')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const mappedMembers: UPNDMember[] = (data || []).map((row: any) => ({
-        id: row.id,
-        membershipId: row.membership_id,
-        fullName: row.full_name,
-        nrcNumber: row.nrc_number,
-        dateOfBirth: row.date_of_birth,
-        residentialAddress: row.residential_address,
-        phone: row.phone,
-        email: row.email,
-        endorsements: [],
-        status: row.status as MembershipStatus,
-        registrationDate: row.registration_date,
-        jurisdiction: {
-          province: row.province,
-          district: row.district,
-          constituency: row.constituency,
-          ward: row.ward,
-          branch: row.branch,
-          section: row.section
-        },
-        disciplinaryRecords: [],
-        appeals: [],
-        partyCommitment: row.party_commitment || 'Unity, Work, Progress'
-      }));
-
-      setMembers(mappedMembers);
-      calculateStatistics(mappedMembers);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching members:', error);
-      setLoading(false);
-    }
-  };
-
   const filterMembersByDateRange = useCallback((memberList: any[], range: string): any[] => {
     if (range === 'allTime' || range === 'all') return memberList;
 
@@ -129,7 +86,7 @@ export function useMembers(filters?: {
     });
   }, []);
 
-  const calculateStatistics = (memberList: UPNDMember[]) => {
+  const calculateStatistics = useCallback((memberList: any[]) => {
     const totalMembers = memberList.length;
     const pendingApplications = memberList.filter(m => m.status.includes('Pending')).length;
     const approvedMembers = memberList.filter(m => m.status === 'Approved').length;

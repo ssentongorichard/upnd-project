@@ -1,19 +1,22 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
 import { Users, CheckCircle, XCircle, Clock, UserCheck, Search } from 'lucide-react';
+import { getEventById } from '@/app/actions/events';
+import { checkInMember } from '@/app/actions/events';
 
 interface EventRSVP {
   id: string;
-  event_id: string;
-  member_id: string;
+  eventId: string;
+  memberId: string;
   response: string;
-  responded_at: string;
-  checked_in: boolean;
-  checked_in_at: string | null;
+  respondedAt: string;
+  checkedIn: boolean;
+  checkedInAt: string | null;
   notes: string;
   member: {
-    full_name: string;
-    membership_id: string;
+    fullName: string;
+    membershipId: string;
     phone: string;
     email: string;
   };
@@ -25,10 +28,10 @@ interface EventRSVPProps {
 }
 
 export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
-  const [rsvps, setRsvps] = useState<EventRSVP[]>([]);
+  const [rsvps, setRsvps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState<'all' | 'attending' | 'not-attending' | 'maybe'>('all');
+  const [filter, setFilter] = useState<'all' | 'Going' | 'Not Going' | 'Maybe'>('all');
 
   useEffect(() => {
     loadRSVPs();
@@ -37,35 +40,11 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
   const loadRSVPs = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('event_rsvps')
-        .select(`
-          id,
-          event_id,
-          member_id,
-          response,
-          responded_at,
-          checked_in,
-          checked_in_at,
-          notes,
-          members!inner(
-            full_name,
-            membership_id,
-            phone,
-            email
-          )
-        `)
-        .eq('event_id', eventId)
-        .order('responded_at', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedRSVPs = (data || []).map(rsvp => ({
-        ...rsvp,
-        member: Array.isArray(rsvp.members) ? rsvp.members[0] : rsvp.members
-      }));
-
-      setRsvps(formattedRSVPs);
+      const result = await getEventById(eventId);
+      
+      if (result.success && result.data) {
+        setRsvps(result.data.rsvps || []);
+      }
     } catch (error) {
       console.error('Error loading RSVPs:', error);
     } finally {
@@ -73,18 +52,15 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
     }
   };
 
-  const handleCheckIn = async (rsvpId: string) => {
+  const handleCheckIn = async (memberId: string) => {
     try {
-      const { error } = await supabase
-        .from('event_rsvps')
-        .update({
-          checked_in: true,
-          checked_in_at: new Date().toISOString()
-        })
-        .eq('id', rsvpId);
-
-      if (error) throw error;
-      loadRSVPs();
+      const result = await checkInMember(eventId, memberId);
+      
+      if (result.success) {
+        loadRSVPs();
+      } else {
+        alert('Failed to check in member');
+      }
     } catch (error) {
       console.error('Error checking in:', error);
       alert('Failed to check in member');
@@ -92,43 +68,30 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
   };
 
   const handleUndoCheckIn = async (rsvpId: string) => {
-    try {
-      const { error } = await supabase
-        .from('event_rsvps')
-        .update({
-          checked_in: false,
-          checked_in_at: null
-        })
-        .eq('id', rsvpId);
-
-      if (error) throw error;
-      loadRSVPs();
-    } catch (error) {
-      console.error('Error undoing check-in:', error);
-      alert('Failed to undo check-in');
-    }
+    // This would need a new server action to undo check-in
+    alert('Undo check-in functionality needs to be implemented');
   };
 
   const getFilteredRSVPs = () => {
     return rsvps.filter(rsvp => {
-      const matchesSearch = rsvp.member.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           rsvp.member.membership_id.toLowerCase().includes(searchTerm.toLowerCase());
+      const memberName = rsvp.member?.fullName || '';
+      const membershipId = rsvp.member?.membershipId || '';
+      
+      const matchesSearch = memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           membershipId.toLowerCase().includes(searchTerm.toLowerCase());
 
       if (!matchesSearch) return false;
 
       if (filter === 'all') return true;
-      if (filter === 'attending') return rsvp.response === 'Attending';
-      if (filter === 'not-attending') return rsvp.response === 'Not Attending';
-      if (filter === 'maybe') return rsvp.response === 'Maybe';
-      return true;
+      return rsvp.response === filter;
     });
   };
 
   const getResponseColor = (response: string) => {
     switch (response) {
-      case 'Attending':
+      case 'Going':
         return 'text-green-600 bg-green-50 border-green-200';
-      case 'Not Attending':
+      case 'Not Going':
         return 'text-red-600 bg-red-50 border-red-200';
       case 'Maybe':
         return 'text-yellow-600 bg-yellow-50 border-yellow-200';
@@ -139,9 +102,9 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
 
   const getResponseIcon = (response: string) => {
     switch (response) {
-      case 'Attending':
+      case 'Going':
         return <CheckCircle className="w-4 h-4" />;
-      case 'Not Attending':
+      case 'Not Going':
         return <XCircle className="w-4 h-4" />;
       case 'Maybe':
         return <Clock className="w-4 h-4" />;
@@ -151,11 +114,11 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
   };
 
   const filteredRSVPs = getFilteredRSVPs();
-  const attendingCount = rsvps.filter(r => r.response === 'Attending').length;
-  const checkedInCount = rsvps.filter(r => r.checked_in).length;
-  const notAttendingCount = rsvps.filter(r => r.response === 'Not Attending').length;
+  const goingCount = rsvps.filter(r => r.response === 'Going').length;
+  const checkedInCount = rsvps.filter(r => r.checkedIn).length;
+  const notGoingCount = rsvps.filter(r => r.response === 'Not Going').length;
   const maybeCount = rsvps.filter(r => r.response === 'Maybe').length;
-  const attendanceRate = attendingCount > 0 ? ((checkedInCount / attendingCount) * 100).toFixed(1) : '0';
+  const attendanceRate = goingCount > 0 ? ((checkedInCount / goingCount) * 100).toFixed(1) : '0';
 
   if (loading) {
     return (
@@ -191,8 +154,8 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Attending</p>
-              <p className="text-2xl font-bold text-green-600">{attendingCount}</p>
+              <p className="text-sm text-gray-600">Going</p>
+              <p className="text-2xl font-bold text-green-600">{goingCount}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-green-600" />
@@ -264,19 +227,19 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
               All ({rsvps.length})
             </button>
             <button
-              onClick={() => setFilter('attending')}
+              onClick={() => setFilter('Going')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filter === 'attending'
+                filter === 'Going'
                   ? 'bg-green-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Attending ({attendingCount})
+              Going ({goingCount})
             </button>
             <button
-              onClick={() => setFilter('maybe')}
+              onClick={() => setFilter('Maybe')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filter === 'maybe'
+                filter === 'Maybe'
                   ? 'bg-yellow-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
@@ -284,14 +247,14 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
               Maybe ({maybeCount})
             </button>
             <button
-              onClick={() => setFilter('not-attending')}
+              onClick={() => setFilter('Not Going')}
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filter === 'not-attending'
+                filter === 'Not Going'
                   ? 'bg-red-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Not Attending ({notAttendingCount})
+              Not Going ({notGoingCount})
             </button>
           </div>
         </div>
@@ -309,14 +272,14 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
                   <div className="flex-1">
                     <div className="flex items-center space-x-3">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{rsvp.member.full_name}</h3>
-                        <p className="text-sm text-gray-600">{rsvp.member.membership_id}</p>
+                        <h3 className="font-semibold text-gray-900">{rsvp.member?.fullName || 'N/A'}</h3>
+                        <p className="text-sm text-gray-600">{rsvp.member?.membershipId || 'N/A'}</p>
                       </div>
                       <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${getResponseColor(rsvp.response)}`}>
                         {getResponseIcon(rsvp.response)}
                         <span>{rsvp.response}</span>
                       </div>
-                      {rsvp.checked_in && (
+                      {rsvp.checkedIn && (
                         <div className="flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                           <UserCheck className="w-4 h-4" />
                           <span>Checked In</span>
@@ -324,33 +287,25 @@ export function EventRSVP({ eventId, eventName }: EventRSVPProps) {
                       )}
                     </div>
                     <div className="mt-2 flex items-center space-x-4 text-sm text-gray-600">
-                      <span>{rsvp.member.phone}</span>
-                      {rsvp.member.email && (
+                      <span>RSVP: {new Date(rsvp.respondedAt).toLocaleString()}</span>
+                      {rsvp.checkedInAt && (
                         <>
                           <span>•</span>
-                          <span>{rsvp.member.email}</span>
-                        </>
-                      )}
-                      <span>•</span>
-                      <span>RSVP: {new Date(rsvp.responded_at).toLocaleString()}</span>
-                      {rsvp.checked_in_at && (
-                        <>
-                          <span>•</span>
-                          <span>Checked in: {new Date(rsvp.checked_in_at).toLocaleString()}</span>
+                          <span>Checked in: {new Date(rsvp.checkedInAt).toLocaleString()}</span>
                         </>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    {rsvp.response === 'Attending' && !rsvp.checked_in && (
+                    {rsvp.response === 'Going' && !rsvp.checkedIn && (
                       <button
-                        onClick={() => handleCheckIn(rsvp.id)}
+                        onClick={() => handleCheckIn(rsvp.memberId)}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                       >
                         Check In
                       </button>
                     )}
-                    {rsvp.checked_in && (
+                    {rsvp.checkedIn && (
                       <button
                         onClick={() => handleUndoCheckIn(rsvp.id)}
                         className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"

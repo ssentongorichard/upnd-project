@@ -1,21 +1,22 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
 import { Mail, MessageSquare, Send, Users, Filter, History, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { getCommunications } from '@/app/actions/communications';
 import { NewCommunicationModal } from './NewCommunicationModal';
-import { CommunicationHistory } from './CommunicationHistory';
 
 interface Communication {
   id: string;
   type: string;
   subject: string;
   message: string;
-  recipients_count: number;
-  sent_count: number;
-  failed_count: number;
+  recipientsCount: number;
+  sentCount: number;
+  failedCount: number;
   status: string;
-  sent_by: string;
-  sent_at: string;
-  created_at: string;
+  sentBy: string;
+  sentAt: string;
+  createdAt: string;
 }
 
 export function Communications() {
@@ -32,13 +33,11 @@ export function Communications() {
   const loadCommunications = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('communications')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setCommunications(data || []);
+      const result = await getCommunications();
+      
+      if (result.success && result.data) {
+        setCommunications(result.data);
+      }
     } catch (error) {
       console.error('Error loading communications:', error);
     } finally {
@@ -82,8 +81,8 @@ export function Communications() {
     }
   };
 
-  const totalSent = communications.reduce((sum, c) => sum + (c.sent_count || 0), 0);
-  const totalFailed = communications.reduce((sum, c) => sum + (c.failed_count || 0), 0);
+  const totalSent = communications.reduce((sum, c) => sum + (c.sentCount || 0), 0);
+  const totalFailed = communications.reduce((sum, c) => sum + (c.failedCount || 0), 0);
   const filteredComms = getFilteredCommunications();
 
   if (loading) {
@@ -155,7 +154,7 @@ export function Communications() {
             <div>
               <p className="text-sm text-gray-600">Total Recipients</p>
               <p className="text-2xl font-bold text-gray-900">
-                {communications.reduce((sum, c) => sum + (c.recipients_count || 0), 0)}
+                {communications.reduce((sum, c) => sum + (c.recipientsCount || 0), 0)}
               </p>
             </div>
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -180,7 +179,7 @@ export function Communications() {
               <option value="all">All Types</option>
               <option value="SMS">SMS</option>
               <option value="Email">Email</option>
-              <option value="Both">Both</option>
+              <option value="Push Notification">Push Notification</option>
             </select>
             <select
               value={filterStatus}
@@ -226,23 +225,23 @@ export function Communications() {
                           {comm.subject || 'SMS Message'}
                         </h3>
                         <p className="text-sm text-gray-600">
-                          {comm.type} • Sent by {comm.sent_by || 'Admin'}
+                          {comm.type} • Sent by {comm.sentBy || 'Admin'}
                         </p>
                       </div>
                     </div>
                     <p className="text-sm text-gray-700 mb-3 line-clamp-2">{comm.message}</p>
                     <div className="flex items-center space-x-4 text-sm text-gray-600">
-                      <span>Recipients: {comm.recipients_count}</span>
+                      <span>Recipients: {comm.recipientsCount}</span>
                       <span>•</span>
-                      <span className="text-green-600">Sent: {comm.sent_count}</span>
-                      {comm.failed_count > 0 && (
+                      <span className="text-green-600">Sent: {comm.sentCount}</span>
+                      {comm.failedCount > 0 && (
                         <>
                           <span>•</span>
-                          <span className="text-red-600">Failed: {comm.failed_count}</span>
+                          <span className="text-red-600">Failed: {comm.failedCount}</span>
                         </>
                       )}
                       <span>•</span>
-                      <span>{new Date(comm.created_at).toLocaleString()}</span>
+                      <span>{new Date(comm.createdAt).toLocaleString()}</span>
                     </div>
                   </div>
                   <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(comm.status)}`}>

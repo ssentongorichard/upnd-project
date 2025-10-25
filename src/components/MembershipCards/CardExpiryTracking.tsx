@@ -1,25 +1,27 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
 import { Calendar, AlertTriangle, CheckCircle, Clock, RefreshCw, Send } from 'lucide-react';
+import { getExpiringCards, renewMembershipCard, markRenewalReminderSent } from '@/app/actions/membership-cards';
 
 interface CardExpiry {
   id: string;
-  member_id: string;
-  card_type: string;
-  issue_date: string;
-  expiry_date: string;
+  memberId: string;
+  cardType: string;
+  issueDate: string;
+  expiryDate: string;
   status: string;
-  renewal_reminder_sent: boolean;
+  renewalReminderSent: boolean;
   member: {
-    full_name: string;
-    membership_id: string;
+    fullName: string;
+    membershipId: string;
     email: string;
     phone: string;
   };
 }
 
 export function CardExpiryTracking() {
-  const [cards, setCards] = useState<CardExpiry[]>([]);
+  const [cards, setCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'expiring' | 'expired'>('all');
 
@@ -30,33 +32,11 @@ export function CardExpiryTracking() {
   const loadCards = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('membership_cards')
-        .select(`
-          id,
-          member_id,
-          card_type,
-          issue_date,
-          expiry_date,
-          status,
-          renewal_reminder_sent,
-          members!inner(
-            full_name,
-            membership_id,
-            email,
-            phone
-          )
-        `)
-        .order('expiry_date', { ascending: true });
-
-      if (error) throw error;
-
-      const formattedCards = (data || []).map(card => ({
-        ...card,
-        member: Array.isArray(card.members) ? card.members[0] : card.members
-      }));
-
-      setCards(formattedCards);
+      const result = await getExpiringCards();
+      
+      if (result.success && result.data) {
+        setCards(result.data);
+      }
     } catch (error) {
       console.error('Error loading cards:', error);
     } finally {
@@ -106,18 +86,14 @@ export function CardExpiryTracking() {
 
   const handleSendReminder = async (cardId: string) => {
     try {
-      const { error } = await supabase
-        .from('membership_cards')
-        .update({
-          renewal_reminder_sent: true,
-          renewal_reminder_sent_at: new Date().toISOString()
-        })
-        .eq('id', cardId);
+      const result = await markRenewalReminderSent(cardId);
 
-      if (error) throw error;
-
-      alert('Renewal reminder sent successfully');
-      loadCards();
+      if (result.success) {
+        alert('Renewal reminder sent successfully');
+        loadCards();
+      } else {
+        alert('Failed to send reminder');
+      }
     } catch (error) {
       console.error('Error sending reminder:', error);
       alert('Failed to send reminder');
@@ -126,23 +102,14 @@ export function CardExpiryTracking() {
 
   const handleRenewCard = async (cardId: string) => {
     try {
-      const newExpiryDate = new Date();
-      newExpiryDate.setFullYear(newExpiryDate.getFullYear() + 1);
+      const result = await renewMembershipCard(cardId);
 
-      const { error } = await supabase
-        .from('membership_cards')
-        .update({
-          expiry_date: newExpiryDate.toISOString().split('T')[0],
-          status: 'Active',
-          renewal_reminder_sent: false,
-          last_renewed_at: new Date().toISOString()
-        })
-        .eq('id', cardId);
-
-      if (error) throw error;
-
-      alert('Card renewed successfully');
-      loadCards();
+      if (result.success) {
+        alert('Card renewed successfully');
+        loadCards();
+      } else {
+        alert('Failed to renew card');
+      }
     } catch (error) {
       console.error('Error renewing card:', error);
       alert('Failed to renew card');
@@ -150,16 +117,16 @@ export function CardExpiryTracking() {
   };
 
   const filteredCards = cards.filter(card => {
-    const status = getExpiryStatus(card.expiry_date);
+    const status = getExpiryStatus(card.expiryDate);
     if (filter === 'all') return true;
     if (filter === 'expiring') return status === 'expiring';
     if (filter === 'expired') return status === 'expired';
     return true;
   });
 
-  const expiredCount = cards.filter(c => getExpiryStatus(c.expiry_date) === 'expired').length;
-  const expiringCount = cards.filter(c => getExpiryStatus(c.expiry_date) === 'expiring').length;
-  const activeCount = cards.filter(c => getExpiryStatus(c.expiry_date) === 'active').length;
+  const expiredCount = cards.filter(c => getExpiryStatus(c.expiryDate) === 'expired').length;
+  const expiringCount = cards.filter(c => getExpiryStatus(c.expiryDate) === 'expiring').length;
+  const activeCount = cards.filter(c => getExpiryStatus(c.expiryDate) === 'active').length;
 
   if (loading) {
     return (
@@ -282,8 +249,8 @@ export function CardExpiryTracking() {
             </div>
           ) : (
             filteredCards.map((card) => {
-              const daysUntilExpiry = getDaysUntilExpiry(card.expiry_date);
-              const status = getExpiryStatus(card.expiry_date);
+              const daysUntilExpiry = getDaysUntilExpiry(card.expiryDate);
+              const status = getExpiryStatus(card.expiryDate);
 
               return (
                 <div key={card.id} className="p-4 hover:bg-gray-50 transition-colors">
@@ -291,8 +258,8 @@ export function CardExpiryTracking() {
                     <div className="flex-1">
                       <div className="flex items-center space-x-3">
                         <div>
-                          <h3 className="font-semibold text-gray-900">{card.member.full_name}</h3>
-                          <p className="text-sm text-gray-600">{card.member.membership_id}</p>
+                          <h3 className="font-semibold text-gray-900">{card.member?.fullName || 'N/A'}</h3>
+                          <p className="text-sm text-gray-600">{card.member?.membershipId || 'N/A'}</p>
                         </div>
                         <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(status)}`}>
                           {getStatusIcon(status)}
@@ -300,11 +267,11 @@ export function CardExpiryTracking() {
                         </div>
                       </div>
                       <div className="mt-2 flex items-center space-x-4 text-sm text-gray-600">
-                        <span>Card Type: {card.card_type}</span>
+                        <span>Card Type: {card.cardType}</span>
                         <span>•</span>
-                        <span>Issued: {new Date(card.issue_date).toLocaleDateString()}</span>
+                        <span>Issued: {new Date(card.issueDate).toLocaleDateString()}</span>
                         <span>•</span>
-                        <span>Expires: {new Date(card.expiry_date).toLocaleDateString()}</span>
+                        <span>Expires: {new Date(card.expiryDate).toLocaleDateString()}</span>
                         <span>•</span>
                         <span className={daysUntilExpiry < 0 ? 'text-red-600 font-medium' : ''}>
                           {daysUntilExpiry < 0
@@ -315,7 +282,7 @@ export function CardExpiryTracking() {
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      {!card.renewal_reminder_sent && (status === 'expiring' || status === 'expired') && (
+                      {!card.renewalReminderSent && (status === 'expiring' || status === 'expired') && (
                         <button
                           onClick={() => handleSendReminder(card.id)}
                           className="flex items-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
@@ -324,7 +291,7 @@ export function CardExpiryTracking() {
                           <span>Send Reminder</span>
                         </button>
                       )}
-                      {card.renewal_reminder_sent && (
+                      {card.renewalReminderSent && (
                         <span className="text-xs text-green-600 font-medium">Reminder Sent</span>
                       )}
                       <button
